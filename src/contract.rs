@@ -1,10 +1,12 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{Addr, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
+use cosmwasm_std::{
+    to_json_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
+};
 use cw2::set_contract_version;
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::msg::{ExecuteMsg, GetPollResponse, InstantiateMsg, QueryMsg};
 use crate::state::{Config, Poll, CONFIG, POLLS};
 
 // version info for migration info
@@ -107,18 +109,31 @@ fn execute_vote(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(_deps: Deps, _env: Env, _msg: QueryMsg) -> StdResult<Binary> {
-    unimplemented!()
+pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+    match msg {
+        QueryMsg::GetPoll { question } => query_get_poll(deps, _env, question),
+        QueryMsg::GetConfig {} => to_json_binary(&CONFIG.load(deps.storage)?),
+    }
+}
+
+fn query_get_poll(deps: Deps, _env: Env, question: String) -> StdResult<Binary> {
+    let poll = POLLS.may_load(deps.storage, question)?;
+    to_json_binary(&GetPollResponse { poll })
 }
 
 #[cfg(test)]
 mod tests {
     use cosmwasm_std::{
-        attr,
+        attr, from_json,
         testing::{mock_dependencies, mock_env, mock_info},
+        Addr,
     };
 
-    use crate::msg::{ExecuteMsg, InstantiateMsg};
+    use crate::{
+        contract::query,
+        msg::{ExecuteMsg, GetPollResponse, InstantiateMsg, QueryMsg},
+        state::{Config, Poll},
+    };
 
     use super::{execute, instantiate};
 
@@ -131,8 +146,18 @@ mod tests {
             admin_address: "addr".to_string(),
         };
 
-        let resp = instantiate(deps.as_mut(), env, info, msg).unwrap();
-        assert_eq!(resp.attributes, vec![attr("action", "instantiate")])
+        let resp = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+        assert_eq!(resp.attributes, vec![attr("action", "instantiate")]);
+
+        let msg = QueryMsg::GetConfig {};
+        let resp = query(deps.as_ref(), env, msg).unwrap();
+        let config: Config = from_json(&resp).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                admin_address: Addr::unchecked("addr")
+            }
+        );
     }
 
     #[test]
@@ -152,6 +177,23 @@ mod tests {
 
         let resp = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
         assert_eq!(resp.attributes, vec![attr("action", "create_poll")]);
+
+        // test for Query
+        let msg = QueryMsg::GetPoll {
+            question: "I did it, I can learn anything".to_string(),
+        };
+        let resp = query(deps.as_ref(), env.clone(), msg).unwrap();
+        let get_poll_response: GetPollResponse = from_json(&resp).unwrap();
+        assert_eq!(
+            get_poll_response,
+            GetPollResponse {
+                poll: Some(Poll {
+                    question: "I did it, I can learn anything".to_string(),
+                    yes_votes: 0,
+                    no_votes: 0
+                })
+            }
+        );
 
         // test for if same key is used
         let msg = ExecuteMsg::CreatePoll {

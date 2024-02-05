@@ -1,6 +1,6 @@
 use cosmwasm_schema::write_api;
 
-use wasm_poll::msg::{ExecuteMsg, InstantiateMsg,};
+use wasm_poll::msg::{ExecuteMsg, InstantiateMsg};
 
 fn main() {
     write_api! {
@@ -9,4 +9,3 @@ fn main() {
         //query: QueryMsg,
     }
 }
-
